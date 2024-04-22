@@ -160,7 +160,7 @@ end
 module.RemoveEntity = function(part: BasePart)
 	local exists: Entity? = module.__entities[part]
 	if exists then	
-		exists.State = 'Disappearing'
+		exists.State = 'Disappearing' --this is not a "hard" remove; we want the entity to fade out in a pleasant manner
 		module.PromptSound('Alert2')
 		return true
 	end
@@ -175,9 +175,9 @@ local function selectNearest() --track an entity by clicking on or near them
 	local mPos: Vector2 = uis:GetMouseLocation()
 	for part, entity in module.__entities do
 		if entity.State == 'Dead' or not entity.Active then continue end
-		local pos: Vector3 = camVP:WorldToViewportPoint(entity.Dot.Position)
-		local posAbs: Vector2 = vpAbsPos + Vector2.new(pos.X*vpAbsSize.X, pos.Y*vpAbsSize.Y) + gus:GetGuiInset()
-		local dist: number = (posAbs - mPos).Magnitude
+		local pos: Vector3 = camVP:WorldToViewportPoint(entity.Dot.Position) --this vector is in [0, 1] interval scaled from the radar UI
+		local posAbs: Vector2 = vpAbsPos + Vector2.new(pos.X*vpAbsSize.X, pos.Y*vpAbsSize.Y) + gus:GetGuiInset() --convert it into AbsolutePosition
+		local dist: number = (posAbs - mPos).Magnitude --distance from mouse
 		--if there are multiple entities in the selection radius, choose the nearest one
 		if dist <= module.SelectionRadius and dist < nearestDist then
 			nearest = entity
@@ -210,13 +210,13 @@ local function init() --called at startup; called again to reapply the configura
 	local ringThickness: number = module.RingThickness*module.Coverage*module.Scale
 	
 	local ringsTable: {number} = {}
-	for i = module.RingsIncrement, module.Coverage, module.RingsIncrement do
+	for i = module.RingsIncrement, module.Coverage, module.RingsIncrement do --space out rings every certain amount of studs (usually 100)
 		table.insert(ringsTable, i*module.Scale)
 	end
 	rrr.OnClientEvent:Once(function(amount: number)
 		local rings: {Instance}
 		local timeOut: number = 0
-		repeat
+		repeat --a loop to check if all the rings have been made by the server
 			rings = ringsInputFolder:GetChildren()
 			timeOut += task.wait()
 		until #rings == amount or timeOut > 5
@@ -248,7 +248,7 @@ local function init() --called at startup; called again to reapply the configura
 end
 init()
 
---the radar centers on the player's character
+--the radar centers on the player's character; automatically resets if the player respawns
 local hrp: BasePart = (lp.Character or lp.CharacterAdded:Wait()):WaitForChild('HumanoidRootPart')
 lp.CharacterAdded:Connect(function(ch)
 	hrp = ch:WaitForChild('HumanoidRootPart')
@@ -315,6 +315,7 @@ rus.RenderStepped:Connect(function(dt: number)
 					module.PromptSound('Alert1') --this is a new entity; play a sound to alert the player
 				end
 			end
+			--for fading, it slowly increments/decrements the transparency by the deltatime of the frame
 			if entity.State == 'Appearing' then --the entity is fading into the radar
 				entity.Transparency1 = math.clamp(entity.Transparency1 - accumulatedDt*module.FadePrimarySpeed, 0, 1)
 				entity.Transparency2 = math.clamp(entity.Transparency2 - accumulatedDt*module.FadeSecondarySpeed, 0, 1)
@@ -356,7 +357,7 @@ rus.RenderStepped:Connect(function(dt: number)
 			
 			--do some math to figure out the correct Transparency value for entities based on the config and their distance
 			local alpha: number = math.clamp(dist / module.Coverage, 0, 1)
-			local fadeTransparency1: number = math.clamp((alpha-module.FadePrimaryStartAlpha)/module.__fade1Delta, 0, 1)
+			local fadeTransparency1: number = math.clamp((alpha-module.FadePrimaryStartAlpha)/module.__fade1Delta, 0, 1) --these are basically inverse linear interpolation; finding the value given alpha
 			local fadeTransparency2: number = math.clamp((alpha-module.FadeSecondaryStartAlpha)/module.__fade2Delta, 0, 1)
 			local actualTransparency1: number = 1 - ((1-fadeTransparency1) * (1-entity.Transparency1))
 			local actualTransparency2: number = 1 - ((1-fadeTransparency2) * (1-entity.Transparency2))
@@ -366,8 +367,8 @@ rus.RenderStepped:Connect(function(dt: number)
 			dot.CFrame = CFrame.lookAt(radarPos, camVPPos) --make the entity face the camera so they appear as squares at all times
 			dot.Transparency = actualTransparency2
 			dot.Color = Color3.fromHSV(0, 0, 1-actualTransparency1) --this is grayscale btw
-			line.Size = Vector3.new(module.__actualLineThickness, math.abs(radarPos.Y), module.__actualLineThickness)
-			line.CFrame = camAzimuthCF + radarPos*Vec1H1
+			line.Size = Vector3.new(module.__actualLineThickness, math.abs(radarPos.Y), module.__actualLineThickness) --line extends up from ground to the entity dot
+			line.CFrame = camAzimuthCF + radarPos*Vec1H1 --positioned right in the middle (done by multiplying the Y component by 0.5)
 			line.Transparency = actualTransparency1
 		end
 		
